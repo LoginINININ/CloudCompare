@@ -35,12 +35,7 @@
 
 #include "ExamplePlugin.h"
 
-
-
-//by kk
-#include <ccPointCloud.h>
-#include <QInputDialog>
-#include <ccProgressDialog.h>
+#include "ActionA.h"
 
 // Default constructor:
 //	- pass the Qt resource path to the info.json file (from <yourPluginName>.qrc file) 
@@ -90,140 +85,11 @@ QList<QAction *> ExamplePlugin::getActions()
 		m_action->setIcon( getIcon() );
 		
 		// Connect appropriate signal
-		
-
-		connect( m_action, &QAction::triggered, this, &ExamplePlugin::doAction );
+		connect( m_action, &QAction::triggered, this, [this]()
+		{
+			Example::performActionA( m_app );
+		});
 	}
 
 	return { m_action };
-}
-
-// This is an example of an action's method called when the corresponding action
-// is triggered (i.e. the corresponding icon or menu entry is clicked in CC's
-// main interface). You can access most of CC's components (database,
-// 3D views, console, etc.) via the 'm_app' variable (see the ccMainAppInterface
-// class in ccMainAppInterface.h).
-void ExamplePlugin::doAction()
-{	
-	assert(m_app);
-	if (!m_app)
-		return;
-
-	//得到点云
-	const ccHObject::Container& selectedEntities = m_app->getSelectedEntities();
-	size_t selNum = selectedEntities.size();
-
-
-	//传入参数
-	bool isOK;
-	QString s_percentage = QInputDialog::getText(NULL, QString::fromLocal8Bit("参数"),
-		QString::fromLocal8Bit("输入留下点的百分比%"),
-		QLineEdit::Normal,
-		"",
-		&isOK);
-	if (!isOK)
-	{
-		ccLog::Print("error");
-		return;
-	}
-
-	//留下点的个数
-	double percentage = s_percentage.toDouble();
-	if (percentage < 0 || percentage>1)
-	{
-		ccLog::Print("error percentage allow 0-1");
-		return;
-	}	
-
-	//加个进度条
-	ccProgressDialog pDlg(true, 0);
-	CCCoreLib::GenericProgressCallback* progressCb = &pDlg;
-
-	if (progressCb)
-	{
-		if (progressCb->textCanBeEdited())
-		{
-			progressCb->setMethodTitle("compute");
-			progressCb->setInfo(qPrintable(QString("waiting...")));
-		}
-		progressCb->update(0);
-		progressCb->start();
-}
-	std::vector<ccHObject*> allCloud;
-
-	//随机数
-	qsrand(QTime(0, 0, 0).secsTo(QTime::currentTime()));
-
-	for (size_t i = 0; i < selNum; ++i)
-	{
-		ccHObject* ent = selectedEntities[i];
-
-		if (!ent->isA(CC_TYPES::POINT_CLOUD))
-		{
-			continue;
-		}
-
-		ccPointCloud* cloud = ccHObjectCaster::ToPointCloud(selectedEntities[i]);
-		//计算点云中心
-		CCVector3 weight;
-
-		CCVector3 bmin, bmax;
-		cloud->getBoundingBox(bmin, bmax);
-		weight = (bmin + bmax) / 2;
-
-		//遍历索引
-		std::vector<size_t> m_index(cloud->size());
-		//以递增的方式填充
-		std::iota(m_index.begin(), m_index.end(), 0);
-
-		//随机一个方向
-		double theta = M_PI * (double)qrand() / (double)(RAND_MAX + 1);  //0-pi
-		double phi = 2 * M_PI * (double)qrand() / (double)(RAND_MAX + 1);     //0-2pi
-
-		CCVector3 dir(sin(theta)*cos(phi), sin(theta)*sin(phi), cos(theta));
-
-		std::vector<double> m_value;
-
-		for (size_t k = 0; k < m_index.size(); k++)
-		{
-			CCVector3 P;
-			cloud->getPoint(m_index[k], P);
-			double temp = (P - weight).dot(dir);
-			m_value.push_back(temp);
-		}
-		//对m_index进行排序
-		std::sort(m_index.begin(), m_index.end(), [&m_value](auto i1, auto i2) {return m_value[i1] < m_value[i2]; });
-		m_index.erase(m_index.begin(), m_index.begin() + (1 - percentage)*cloud->size());
-
-		//新点云
-		ccPointCloud* pcc = new ccPointCloud(QString("cq") + cloud->getName());
-		pcc->reserve(m_index.size());
-		//pcc->reserveTheNormsTable();
-
-		for (size_t j = 0; j < m_index.size(); j++)
-		{
-			pcc->addPoint(*cloud->getPoint(m_index[j]));
-			//pcc->addNorm(cloud->getPointNormal(m_index[j]));
-		}
-
-		allCloud.push_back(pcc);
-
-		progressCb->update((float)100.0*i / selNum);
-	}
-	if (progressCb)
-		progressCb->stop();
-
-	//新建一个文件夹来放点云
-	ccHObject* CloudGroup = new ccHObject(QString("CloudGroup"));
-
-	for (size_t i = 0; i < allCloud.size(); i++)
-	{
-		CloudGroup->addChild(allCloud[i]);
-	}
-
-
-	m_app->addToDB(CloudGroup);
-	//刷新
-	m_app->refreshAll();
-	m_app->updateUI();
 }
